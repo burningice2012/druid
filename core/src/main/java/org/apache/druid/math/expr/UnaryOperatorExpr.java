@@ -23,7 +23,10 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.druid.common.config.NullHandling;
 import org.apache.druid.java.util.common.IAE;
 import org.apache.druid.java.util.common.StringUtils;
+import org.apache.druid.math.expr.vector.ExprVectorProcessor;
+import org.apache.druid.math.expr.vector.VectorMathProcessors;
 
+import javax.annotation.Nullable;
 import java.util.Objects;
 
 /**
@@ -31,21 +34,16 @@ import java.util.Objects;
  */
 abstract class UnaryExpr implements Expr
 {
+  final String op;
   final Expr expr;
 
-  UnaryExpr(Expr expr)
+  UnaryExpr(String op, Expr expr)
   {
+    this.op = op;
     this.expr = expr;
   }
 
   abstract UnaryExpr copy(Expr expr);
-
-  @Override
-  public void visit(Visitor visitor)
-  {
-    expr.visit(visitor);
-    visitor.visit(this);
-  }
 
   @Override
   public Expr visit(Shuttle shuttle)
@@ -59,10 +57,17 @@ abstract class UnaryExpr implements Expr
   }
 
   @Override
-  public BindingDetails analyzeInputs()
+  public BindingAnalysis analyzeInputs()
   {
     // currently all unary operators only operate on scalar inputs
     return expr.analyzeInputs().withScalarArguments(ImmutableSet.of(expr));
+  }
+
+  @Nullable
+  @Override
+  public ExprType getOutputType(InputBindingTypes inputTypes)
+  {
+    return expr.getOutputType(inputTypes);
   }
 
   @Override
@@ -83,19 +88,31 @@ abstract class UnaryExpr implements Expr
   {
     return Objects.hash(expr);
   }
+
+  @Override
+  public String stringify()
+  {
+    return StringUtils.format("%s%s", op, expr.stringify());
+  }
+
+  @Override
+  public String toString()
+  {
+    return StringUtils.format("%s%s", op, expr);
+  }
 }
 
 class UnaryMinusExpr extends UnaryExpr
 {
-  UnaryMinusExpr(Expr expr)
+  UnaryMinusExpr(String op, Expr expr)
   {
-    super(expr);
+    super(op, expr);
   }
 
   @Override
   UnaryExpr copy(Expr expr)
   {
-    return new UnaryMinusExpr(expr);
+    return new UnaryMinusExpr(op, expr);
   }
 
   @Override
@@ -115,29 +132,29 @@ class UnaryMinusExpr extends UnaryExpr
   }
 
   @Override
-  public String stringify()
+  public boolean canVectorize(InputBindingTypes inputTypes)
   {
-    return StringUtils.format("-%s", expr.stringify());
+    return inputTypes.areNumeric(expr) && expr.canVectorize(inputTypes);
   }
 
   @Override
-  public String toString()
+  public <T> ExprVectorProcessor<T> buildVectorized(VectorInputBindingTypes inputTypes)
   {
-    return StringUtils.format("-%s", expr);
+    return VectorMathProcessors.negate(inputTypes, expr);
   }
 }
 
 class UnaryNotExpr extends UnaryExpr
 {
-  UnaryNotExpr(Expr expr)
+  UnaryNotExpr(String op, Expr expr)
   {
-    super(expr);
+    super(op, expr);
   }
 
   @Override
   UnaryExpr copy(Expr expr)
   {
-    return new UnaryNotExpr(expr);
+    return new UnaryNotExpr(op, expr);
   }
 
   @Override
@@ -152,15 +169,14 @@ class UnaryNotExpr extends UnaryExpr
     return ExprEval.of(!ret.asBoolean(), retType);
   }
 
+  @Nullable
   @Override
-  public String stringify()
+  public ExprType getOutputType(InputBindingTypes inputTypes)
   {
-    return StringUtils.format("!%s", expr.stringify());
-  }
-
-  @Override
-  public String toString()
-  {
-    return StringUtils.format("!%s", expr);
+    ExprType implicitCast = super.getOutputType(inputTypes);
+    if (ExprType.STRING.equals(implicitCast)) {
+      return ExprType.LONG;
+    }
+    return implicitCast;
   }
 }

@@ -47,14 +47,6 @@ abstract class BinaryOpExprBase implements Expr
   }
 
   @Override
-  public void visit(Visitor visitor)
-  {
-    left.visit(visitor);
-    right.visit(visitor);
-    visitor.visit(this);
-  }
-
-  @Override
   public Expr visit(Shuttle shuttle)
   {
     Expr newLeft = left.visit(shuttle);
@@ -81,10 +73,23 @@ abstract class BinaryOpExprBase implements Expr
   protected abstract BinaryOpExprBase copy(Expr left, Expr right);
 
   @Override
-  public BindingDetails analyzeInputs()
+  public BindingAnalysis analyzeInputs()
   {
     // currently all binary operators operate on scalar inputs
     return left.analyzeInputs().with(right).withScalarArguments(ImmutableSet.of(left, right));
+  }
+
+  @Nullable
+  @Override
+  public ExprType getOutputType(InputBindingTypes inputTypes)
+  {
+    if (left.isNullLiteral()) {
+      return right.getOutputType(inputTypes);
+    }
+    if (right.isNullLiteral()) {
+      return left.getOutputType(inputTypes);
+    }
+    return ExprTypeConversion.operator(left.getOutputType(inputTypes), right.getOutputType(inputTypes));
   }
 
   @Override
